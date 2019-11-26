@@ -15,3 +15,7 @@ $(EXEC): $(OBJS)
 $(OBJ_DIR)/%.o: $(SRC_DIR)/%.cu
 	mkdir -p $(dir $@)
 	nvcc $(NVCC_FLAGS) -o $@ -c $< -I$(SRC_DIR)
+
+clean:
+	rm -rf $(BIN_DIR)/*
+	rm -rf $(OBJ_DIR)/*
