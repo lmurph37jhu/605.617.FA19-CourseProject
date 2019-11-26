@@ -8,6 +8,7 @@ EXEC := $(BIN_DIR)/doppler
 NVCC_FLAGS := -L /usr/local/cuda/lib64 -lcudart -lcufft -std=c++11
 
 $(EXEC): $(OBJS)
+	mkdir -p $(dir $@)
 	nvcc $(NVCC_FLAGS) -o $@ $(OBJS)
 	@echo "Done"
 
