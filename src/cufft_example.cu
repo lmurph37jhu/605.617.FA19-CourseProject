@@ -24,13 +24,6 @@ typedef float2 Complex;
 const double C = 299792.458; //km/s
 const double PI = 3.1415926535897932384626433;
 
-__global__ 
-void ComplexMUL(Complex *a, Complex *b)
-{
-    int i = threadIdx.x;
-    a[i].x = a[i].x * b[i].x - a[i].y*b[i].y;
-    a[i].y = a[i].x * b[i].y + a[i].y*b[i].x;
-}
 
 /** POMR Eq. 20.50
  * TODO: make this a kernel
@@ -47,74 +40,138 @@ T Chirp(T A, T f0, T B, T tau, T t)
     return A*cos( 2*PI*f0*t + PI*B/tau*t*t );
 }
 
+template <typename T>
+T dBToPower(T dB){ return 10*std::log10(dB); }
+
+template <typename T>
+T powerTodB(T ratio){ return std::pow(10, ratio/10); }
+
 int main()
 {
-    // Test with values from POMR pg 75
-    // TODO: replace with input params?
-    const float f0 = 9.3e9; // signal initial frequency (Hz)
-    const float B = 0.2e9; // signal bandwidth (Hz)
-    const float tau = 1.2e-6; // pulse width (s)
-    const float PRI = 500e-6; // pulse repetition interval (s)
-    const float CPI = 18.3e-3; // Processing dwell time (s)
+    // 
+    // Radar parameters from POMR Section 2.12
+    const float Pt = 150;      // Transmit peak power (kW)
+    const float f0  = 9.4e9;   // Signal frequency (Hz)
+    const float tau = 1.2e-6;  // Pulse width (s)
+    const float PRF = 2e3;     // Pulse repetition frequency (Hz)
+    const float Da = 2.4;      // Antenna diameter (m)
+    const float eta_a = 0.6;   // Antenna efficiency
+    const float CPI = 16e-3;   // coherent processing interval / dwell time (s)
+                               // Adjusted from 18.3 to get a power of 2 number of dwells
+    const float Lt = 3.1;      // Transmit loss (dB)
+    const float Lr = 2.4;      // Receive loss (dB)
+    const float Lsp = 3.2;     // Signal processing loss (dB)
+    const float La_per_km = 0.16;  // Atmospheric loss per km (dB/km)
+    const float RCS = 0;       // Target RCS (dBsm)
+    const float R0 = 25;       // Initial target range (km)
+    const float vt = 120e-3;   // Target velocity (km/s)
 
-    // Generate pulses
-    const float signal_fs = 2*(f0+B); // sample frequency, Nyquist
-    const float signal_Ts = 1/signal_fs;
-    const int num_signal_samples = tau/signal_Ts; //22800
+    // Derived parameters
+    const float T0 = 1.0/f0;   // Signal period (s)
+    const float lambda = C/f0; // Signal wavelength (km)
+    const float PRI = 1.0/PRF; // Pulse repetition interval (s)
+    const float Ae = PI * std::pow(Da/2, 2) * eta_a; // Antenna effective area (m^2)
 
-    Complex *signal = new Complex[num_signal_samples];
-    int signal_bytes = sizeof(Complex) * num_signal_samples;
-    for(int i = 0; i < num_signal_samples; ++i)
+
+    //
+    // Transmitted pulse for display purposes (Eq. 8.25)
+    std::cout << "Generating transmitted pulse..." << std::endl;
+    const float fs_tx = 2*f0; // Nyquist rate (Hz)
+    const float Ts_tx = 1/fs_tx;
+    const int num_samples_tx = tau/Ts_tx;
+    float *pulse_tx = new float[num_samples_tx];
+    int signal_bytes = sizeof(float) * num_samples_tx;
+    for(int i = 0; i < num_samples_tx; ++i)
     {
-        fg[i].x = Chirp<float>(1.0, f0, B, tau, i*signal_Ts); 
-        fg[i].y = 0;
+        pulse_tx[i] = std::cos(2*PI*f0*i*Ts_tx);
+    }
+    delete[] pulse_tx;
+
+    const int num_pulses = CPI/PRI;
+    const int num_range_bins = PRI/tau;
+    std::cout << "Generating fast time slow time matrix...\n";
+    std::cout << "Range bins: " << num_range_bins << "\n";
+    std::cout << "Pulses: " << num_pulses << std::endl;
+
+    Complex **data_matrix = new Complex[num_pulses];
+    for(int i = 0; i < num_pulses; ++i)
+    {
+        data_matrix[i] = new Complex[num_range_bins];
     }
 
-    // Modify amplitude according to radar range equation
+    for(int pulse = 0; pulse < num_pulses; ++pulse)
+    {
+        const float R = R0 + vt*(pulse*PRI);
+        const float echo_start_time = 2*R/C;
+        
+        //
+        // Radar range equation w/o noise (Eq. 2.17)
+        const float Ls = dBToPower( Lt + La_per_km*2*R + Lr + Lsp ); // Two-way system loss (dB)
+        float A_prime = (Pt * dBtoPower(RCS) * Ae) / 
+                        (std::pow(4*PI, 3) * std::pow(R, 4) * Ls);
+        
 
-    // Modify phase according to Eq. 8.26 and Eq. 8.28
+        for(int i = 0; i < num_range_bins; ++i)
+        {
+            //
+            // Received pulse with doppler phase shift (Eq. 8.26)
+            const float t = i*tau - echo_start_time; // Use pulse arrival time as reference time
+            // Evaluates to 0 or 1, using to avoid if statement in kernel
+            const bool out_of_pulse = t < 0 || t > tau; // Inside pulse arrival window
+            float signal_rx = A_prime * std::cos(2*PI*f0*i*tau - 4*PI*R/lambda) * out_of_pulse;
 
-    // Get in-phase and quadrature components for analytic signal
-    
-    // Populate fast-time slow-time matrix
+            //
+            // Analytic signal from I/Q channels (Eq. 8.27)
+            Complex signal_analytic;
+            signal_analytic.x = signal_rx * 2*std::cos(2*PI*f0*i*tau);
+            signal_analytic.y = signal_rx * 2*std::sin(2*PI*f0*i*tau);
 
+            //
+            // Populate fast-time slow-time matrix
+            data_matrix[pulse][i] = signal_analytic;
+        }
+    }
+
+    //
     // FFT along each slow-time row
-
-    /*
-    cufftComplex *d_signal;
-    checkCudaErrors(cudaMalloc((void **) &d_signal, mem_size)); 
-    checkCudaErrors(cudaMemcpy(d_signal, fg, mem_size, cudaMemcpyHostToDevice));
-
-    cufftComplex *d_filter_kernel;
-    checkCudaErrors(cudaMalloc((void **)&d_filter_kernel, mem_size));
-    checkCudaErrors(cudaMemcpy(d_filter_kernel, fig, mem_size, cudaMemcpyHostToDevice));
+    std::cout << "Performing FFT on slow-time sequences..." << std::endl;
 
     // CUFFT plan
     cufftHandle plan;
-    cufftPlan2d(&plan, N, N, CUFFT_C2C);
+    cufftPlan1d(&plan, num_pulses, CUFFT_C2C, 1);
 
-    // Transform signal and filter
-    printf("Transforming signal cufftExecR2C\n");
-    cufftExecC2C(plan, (cufftComplex *)d_signal, (cufftComplex *)d_signal, CUFFT_FORWARD);
-
-    printf("Launching Complex multiplication<<< >>>\n");
-    ComplexMUL <<< 32, 256 >> >(d_signal, d_filter_kernel);
-
-    // Transform signal back
-    printf("Transforming signal back cufftExecC2C\n");
-    cufftExecC2C(plan, (cufftComplex *)d_signal, (cufftComplex *)d_signal, CUFFT_INVERSE);
-
-    Complex *result = new Complex[SIZE];
-    cudaMemcpy(result, d_signal, sizeof(Complex)*SIZE, cudaMemcpyDeviceToHost);
-
-    for (int i = 0; i < SIZE; i=i+5)
+    for(int range_bin = 0; range_bin < num_range_bins; ++range_bin)
     {
-        std::cout << result[i].x << " " << result[i + 1].x << " " << result[i + 2].x << " " << result[i + 3].x << " " << result[i + 4].x << std::endl;
+        Complex *slow_time_data = new Complex[num_pulses];
+        Complex *fft_data = new Complex[num_pulses];
+        for(int pulse = 0; pulse < num_pulses; ++pulse)
+        {
+            slow_time_data[pulse] = data_matrix[range_bin][pulse];
+        }
+
+        cufftComplex *d_slow_time_data;
+        int mem_size = sizeof(cufftComplex)*num_pulses;
+        checkCudaErrors(cudaMalloc((void **) &d_slow_time_data, mem_size)); 
+        checkCudaErrors(cudaMemcpy(d_slow_time_data, slow_time_data, mem_size, cudaMemcpyHostToDevice));
+
+        // Transform slow time data and retrieve
+        cufftExecC2C(plan, (cufftComplex *)d_slow_time_data, (cufftComplex *)d_slow_time_data, CUFFT_FORWARD);
+        cudaMemcpy(fft_data, d_slow_time_data, mem_size, cudaMemcpyDeviceToHost);
+
+        for (int i = 0; i < num_pulses; ++i)
+        {
+            std::cout << fft_data[i].x << " ";
+        }
+        std::cout << std::endl;
+        delete slow_time_data, fft_data;
+        cudaFree(d_slow_time_data);
     }
 
-    delete result, fg, fig;
+    for(int i = 0; i < num_pulses; ++i)
+    {
+        delete[] data_matrix[i];
+    }
+    delete[] data_matrix;
     cufftDestroy(plan);
-    cudaFree(d_signal);
-    cudaFree(d_filter_kernel);
-    */
+    std::cout << "Success!" << std::endl;
 }
