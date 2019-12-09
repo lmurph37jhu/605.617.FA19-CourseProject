@@ -24,22 +24,6 @@ typedef float2 Complex;
 const double C = 299792.458; //km/s
 const double PI = 3.1415926535897932384626433;
 
-
-/** POMR Eq. 20.50
- * TODO: make this a kernel
- * @param A   - peak amplitude 
- * @param f0  - center frequency
- * @param B   - waveform bandwidth
- * @param tau - pulse duration
- * @param t   - time (seconds)
- */
-__host__ 
-template <typename T>
-T Chirp(T A, T f0, T B, T tau, T t)
-{
-    return A*cos( 2*PI*f0*t + PI*B/tau*t*t );
-}
-
 template <typename T>
 T dBToPower(T dB){ return 10*std::log10(dB); }
 
@@ -67,7 +51,6 @@ int main()
     const float vt = 120e-3;   // Target velocity (km/s)
 
     // Derived parameters
-    const float T0 = 1.0/f0;   // Signal period (s)
     const float lambda = C/f0; // Signal wavelength (km)
     const float PRI = 1.0/PRF; // Pulse repetition interval (s)
     const float Ae = PI * std::pow(Da/2, 2) * eta_a; // Antenna effective area (m^2)
@@ -93,7 +76,7 @@ int main()
     std::cout << "Range bins: " << num_range_bins << "\n";
     std::cout << "Pulses: " << num_pulses << std::endl;
 
-    Complex **data_matrix = new Complex[num_pulses];
+    Complex **data_matrix = new Complex*[num_pulses];
     for(int i = 0; i < num_pulses; ++i)
     {
         data_matrix[i] = new Complex[num_range_bins];
@@ -107,7 +90,7 @@ int main()
         //
         // Radar range equation w/o noise (Eq. 2.17)
         const float Ls = dBToPower( Lt + La_per_km*2*R + Lr + Lsp ); // Two-way system loss (dB)
-        float A_prime = (Pt * dBtoPower(RCS) * Ae) / 
+        float A_prime = (Pt * dBToPower(RCS) * Ae) / 
                         (std::pow(4*PI, 3) * std::pow(R, 4) * Ls);
         
 
