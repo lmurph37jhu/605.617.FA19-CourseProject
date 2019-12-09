@@ -112,7 +112,10 @@ int main()
             //
             // Populate fast-time slow-time matrix
             data_matrix[pulse][i] = signal_analytic;
+            float abs_value = std::sqrt(signal_analytic.x*signal_analytic.x + signal_analytic.y*signal_analytic.y);
+            std::cout << abs_value << " ";
         }
+        std::cout << "\n";
     }
 
     //
@@ -126,7 +129,7 @@ int main()
     for(int range_bin = 0; range_bin < num_range_bins; ++range_bin)
     {
         Complex *slow_time_data = new Complex[num_pulses];
-        Complex *fft_data = new Complex[num_pulses];
+        cufftComplex *fft_data = new cufftComplex[num_pulses];
         for(int pulse = 0; pulse < num_pulses; ++pulse)
         {
             slow_time_data[pulse] = data_matrix[range_bin][pulse];
@@ -143,7 +146,8 @@ int main()
 
         for (int i = 0; i < num_pulses; ++i)
         {
-            std::cout << fft_data[i].x << " ";
+            float abs_value = std::sqrt(fft_data[i].x*fft_data[i].x + fft_data[i].y*fft_data[i].y);
+            std::cout << abs_value << " ";
         }
         std::cout << std::endl;
         delete slow_time_data, fft_data;
