@@ -25,10 +25,10 @@ const double C = 299792.458; //km/s
 const double PI = 3.1415926535897932384626433;
 
 template <typename T>
-T dBToPower(T dB){ return 10*std::log10(dB); }
+T dBToPower(T dB){ return std::pow(10, dB/10); }
 
 template <typename T>
-T powerTodB(T ratio){ return std::pow(10, ratio/10); }
+T powerTodB(T ratio){ return 10*std::log10(ratio); }
 
 int main()
 {
@@ -46,7 +46,7 @@ int main()
     const float Lr = 2.4;      // Receive loss (dB)
     const float Lsp = 3.2;     // Signal processing loss (dB)
     const float La_per_km = 0.16;  // Atmospheric loss per km (dB/km)
-    const float RCS = 0;       // Target RCS (dBsm)
+    const float RCS = -10;       // Target RCS (dBsm)
     const float R0 = 25;       // Initial target range (km)
     const float vt = 120e-3;   // Target velocity (km/s)
 
@@ -150,15 +150,17 @@ int main()
             std::cout << abs_value << " ";
         }
         std::cout << std::endl;
-        delete slow_time_data, fft_data;
+        delete[] slow_time_data, fft_data;
         cudaFree(d_slow_time_data);
     }
 
-    for(int i = 0; i < num_pulses; ++i)
+    std::cout << "Deleting data matrix..." << std::endl;
+    for(int i = 0; i < num_range_bins; ++i)
     {
         delete[] data_matrix[i];
     }
     delete[] data_matrix;
+    std::cout << "Destroying plan..." << std::endl;
     cufftDestroy(plan);
     std::cout << "Success!" << std::endl;
 }
