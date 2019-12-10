@@ -10,6 +10,7 @@ JHU Engineering for Professionals
 #include <ctime>
 #include <cstdio>
 #include <cmath>
+#include <random>
 
 // CUDA includes
 #include "cuda_runtime.h"
@@ -82,6 +83,10 @@ int main()
         data_matrix[i] = new Complex[num_range_bins];
     }
 
+    std::random_device rd;
+    std::mt19937 gen{rd()};
+    std::normal_distribution<float> dist{0.0, 0.1};
+
     for(int pulse = 0; pulse < num_pulses; ++pulse)
     {
         const float R = R0 + vt*(pulse*PRI);
@@ -92,7 +97,7 @@ int main()
         const float Ls = dBToPower( Lt + La_per_km*2*R + Lr + Lsp ); // Two-way system loss (dB)
         float A_prime = (Pt * dBToPower(RCS) * Ae) / 
                         (std::pow(4*PI, 3) * std::pow(R, 4) * Ls);
-        
+        float gaussian_noise = 
 
         for(int i = 0; i < num_range_bins; ++i)
         {
@@ -100,8 +105,11 @@ int main()
             // Received pulse with doppler phase shift (Eq. 8.26)
             const float t = i*tau - echo_start_time; // Use pulse arrival time as reference time
             // Evaluates to 0 or 1, using to avoid if statement in kernel
-            const bool out_of_pulse = t < 0 || t > tau; // Inside pulse arrival window
-            float signal_rx = A_prime * std::cos(2*PI*f0*i*tau - 4*PI*R/lambda) * out_of_pulse;
+            const bool in_pulse = t >= 0 && t <= tau; // Inside pulse arrival window
+            float signal_rx = A_prime * std::cos(2*PI*f0*i*tau - 4*PI*R/lambda) * in_pulse;
+
+            // Add some Gaussian noise
+            signal_rx += A_prime*dist(gen);
 
             //
             // Analytic signal from I/Q channels (Eq. 8.27)
