@@ -200,7 +200,7 @@ int main()
     range_doppler_file.close();
 
     std::cout << "Deleting data matrix..." << std::endl;
-    for(int i = 0; i < num_range_bins; ++i)
+    for(int i = 0; i < num_pulses; ++i)
     {
         delete[] data_matrix[i];
     }
