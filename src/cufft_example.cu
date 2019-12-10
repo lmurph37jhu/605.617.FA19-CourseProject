@@ -195,10 +195,12 @@ int main()
 
         for (int i = 0; i < fft_size; ++i)
         {
-            range_doppler_file << complexPhase(fft_data[i]) << " ";
+            range_doppler_file << complexAbs(fft_data[i]) << " ";
         }
         range_doppler_file << std::endl;
-        delete[] slow_time_data, fft_data;
+
+        delete[] slow_time_data;
+        delete[] fft_data;
         cudaFree(d_slow_time_data);
     }
     range_doppler_file.close();
