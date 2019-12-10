@@ -211,7 +211,7 @@ int main()
         checkCudaErrors( cudaEventRecord(kernel_start_event, stream) );
         cufftComplex *d_data_to_process;
         checkCudaErrors(cudaMalloc((void **) &d_data_to_process, mem_size)); 
-        checkCudaErrors(cudaMemcpy(d_data_to_process, slod_data_to_processw_time_data, mem_size, cudaMemcpyHostToDevice));
+        checkCudaErrors(cudaMemcpy(d_data_to_process, slow_time_data, mem_size, cudaMemcpyHostToDevice));
 
         // Transform slow time data
         cufftExecC2C(plan, (cufftComplex *)d_data_to_process, (cufftComplex *)d_data_to_process, CUFFT_FORWARD);
