@@ -31,6 +31,19 @@ T dBToPower(T dB){ return std::pow(10, dB/10); }
 template <typename T>
 T powerTodB(T ratio){ return 10*std::log10(ratio); }
 
+// Bit twiddling hack from:
+// https://graphics.stanford.edu/~seander/bithacks.html#RoundUpPowerOf2
+int nextPowerOfTwo(int v){ 
+    v--;
+    v |= v >> 1;
+    v |= v >> 2;
+    v |= v >> 4;
+    v |= v >> 8;
+    v |= v >> 16;
+    v++;
+    return v;
+}
+
 int main()
 {
     // 
@@ -83,6 +96,14 @@ int main()
         data_matrix[i] = new Complex[num_range_bins];
     }
 
+    std::fstream data_matrix_file;
+    data_matrix_file.open("data-matrix.txt",ios::out);
+    if(!data_matrix_file)
+    {
+        std::cout<<"Error creating data matrix file"<< std::endl;
+        return 0;
+    }
+
     std::random_device rd;
     std::mt19937 gen{rd()};
     std::normal_distribution<float> dist{0.0, 0.1};
@@ -120,46 +141,62 @@ int main()
             // Populate fast-time slow-time matrix
             data_matrix[pulse][i] = signal_analytic;
             float abs_value = std::sqrt(signal_analytic.x*signal_analytic.x + signal_analytic.y*signal_analytic.y);
-            std::cout << abs_value << " ";
+            data_matrix_file << abs_value << " ";
         }
-        std::cout << "\n";
+        data_matrix_file << "\n";
     }
+    data_matrix_file.close();
 
     //
     // FFT along each slow-time row
+    std::fstream range_doppler_file;
+    range_doppler_file.open("range-doppler.txt",ios::out);
+    if(!range_doppler_file)
+    {
+        std::cout << "Error creating range-doppler file"<< std::endl;
+        return 0;
+    }
+
     std::cout << "Performing FFT on slow-time sequences..." << std::endl;
+    const int fft_size = nextPowerOfTwo(num_pulses);
 
     // CUFFT plan
     cufftHandle plan;
-    cufftPlan1d(&plan, num_pulses, CUFFT_C2C, 1);
+    cufftPlan1d(&plan, fft_size, CUFFT_C2C, 1);
 
     for(int range_bin = 0; range_bin < num_range_bins; ++range_bin)
     {
-        Complex *slow_time_data = new Complex[num_pulses];
-        cufftComplex *fft_data = new cufftComplex[num_pulses];
-        for(int pulse = 0; pulse < num_pulses; ++pulse)
+        Complex *slow_time_data = new Complex[fft_size];
+        
+        for(int pulse = 0; pulse < fft_size; ++pulse)
         {
-            slow_time_data[pulse] = data_matrix[range_bin][pulse];
+            // Zero pad if needed
+            slow_time_data[pulse] = (pulse >= num_pulses) ? data_matrix[range_bin][pulse] : 0;
         }
 
         cufftComplex *d_slow_time_data;
-        int mem_size = sizeof(cufftComplex)*num_pulses;
-        checkCudaErrors(cudaMalloc((void **) &d_slow_time_data, mem_size)); 
-        checkCudaErrors(cudaMemcpy(d_slow_time_data, slow_time_data, mem_size, cudaMemcpyHostToDevice));
+        int input_mem_size = sizeof(Complex)*fft_size;
+        checkCudaErrors(cudaMalloc((void **) &d_slow_time_data, input_mem_size)); 
+        checkCudaErrors(cudaMemcpy(d_slow_time_data, slow_time_data, input_mem_size, cudaMemcpyHostToDevice));
 
-        // Transform slow time data and retrieve
+        // Transform slow time data
         cufftExecC2C(plan, (cufftComplex *)d_slow_time_data, (cufftComplex *)d_slow_time_data, CUFFT_FORWARD);
-        cudaMemcpy(fft_data, d_slow_time_data, mem_size, cudaMemcpyDeviceToHost);
 
-        for (int i = 0; i < num_pulses; ++i)
+        // Retrieve range-doppler matrix row
+        int output_mem_size = sizeof(cufftComplex)*fft_size;
+        cufftComplex *fft_data = new cufftComplex[fft_size];
+        cudaMemcpy(fft_data, d_slow_time_data, output_mem_size, cudaMemcpyDeviceToHost);
+
+        for (int i = 0; i < fft_size; ++i)
         {
             float abs_value = std::sqrt(fft_data[i].x*fft_data[i].x + fft_data[i].y*fft_data[i].y);
-            std::cout << abs_value << " ";
+            range_doppler_file << abs_value << " ";
         }
-        std::cout << std::endl;
+        range_doppler_file << std::endl;
         delete[] slow_time_data, fft_data;
         cudaFree(d_slow_time_data);
     }
+    range_doppler_file.close();
 
     std::cout << "Deleting data matrix..." << std::endl;
     for(int i = 0; i < num_range_bins; ++i)
