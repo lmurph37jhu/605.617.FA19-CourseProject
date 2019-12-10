@@ -25,17 +25,6 @@ typedef float2 Complex;
 const double C = 299792.458; //km/s
 const double PI = 3.1415926535897932384626433;
 
-__host__ void cuda_error_check(const char * prefix, const char * postfix)
-{
-    const cudaError_t lastError = cudaPeekAtLastError();
-    if (lastError != cudaSuccess)
-    {
-        printf("%s %s (err_num=%d) %s\n", prefix, cudaGetErrorString(lastError), lastError, postfix);
-        cudaDeviceReset();
-        exit(1);
-    }
-}
-
 template <typename T>
 T dBToPower(T dB){ return std::pow(10, dB/10); }
 
