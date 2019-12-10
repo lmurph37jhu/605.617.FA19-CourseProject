@@ -44,8 +44,12 @@ int nextPowerOfTwo(int v){
     return v;
 }
 
-float complexAbs(Complex cplx){ return std::sqrt(cplx.x*cplx.x + cplx.y*cplx.y); }
-float complexPhase(Complex cplx){ return std::atan(cplx.y / cplx.y); }
+float complexAbs(Complex cplx) { return std::sqrt(cplx.x*cplx.x + cplx.y*cplx.y); }
+float complexPhase(Complex cplx) {
+    if(cplx.x==0 && cplx.y>=0) return PI/2;
+    if(cplx.x==0 && cplx.y<0) return -PI/2;
+    return std::atan(cplx.y / cplx.x);
+}
 
 int main()
 {
@@ -174,7 +178,7 @@ int main()
         for(int pulse = 0; pulse < fft_size; ++pulse)
         {
             // Zero pad if needed
-            slow_time_data[pulse] = (pulse >= num_pulses) ? data_matrix[range_bin][pulse] : complex_zero;
+            slow_time_data[pulse] = (pulse < num_pulses) ? data_matrix[range_bin][pulse] : complex_zero;
         }
 
         cufftComplex *d_slow_time_data;
