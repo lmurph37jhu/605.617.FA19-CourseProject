@@ -178,7 +178,7 @@ int main()
         for(int pulse = 0; pulse < fft_size; ++pulse)
         {
             // Zero pad if needed
-            slow_time_data[pulse] = (pulse < num_pulses) ? data_matrix[range_bin][pulse] : complex_zero;
+            slow_time_data[pulse] = (pulse < num_pulses) ? data_matrix[pulse][range_bin] : complex_zero;
         }
 
         cufftComplex *d_slow_time_data;
