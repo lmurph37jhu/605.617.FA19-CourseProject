@@ -191,6 +191,8 @@ int main()
     checkCudaErrors( cudaEventCreate(&kernel_start_event) ); 
     checkCudaErrors( cudaEventCreate(&to_host_event) ); 
     checkCudaErrors( cudaEventCreate(&end_event) ); 
+    checkCudaErrors( cudaEventCreate(&deallocate_start_event) );
+    checkCudaErrors( cudaEventCreate(&deallocate_end_event) );
 
     // Allocate host and device memory
     Complex *slow_time_data, *fft_data;
