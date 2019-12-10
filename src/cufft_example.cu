@@ -97,7 +97,7 @@ int main()
     }
 
     std::fstream data_matrix_file;
-    data_matrix_file.open("data-matrix.txt",ios::out);
+    data_matrix_file.open("data-matrix.txt",std::ios::out);
     if(!data_matrix_file)
     {
         std::cout<<"Error creating data matrix file"<< std::endl;
@@ -150,7 +150,7 @@ int main()
     //
     // FFT along each slow-time row
     std::fstream range_doppler_file;
-    range_doppler_file.open("range-doppler.txt",ios::out);
+    range_doppler_file.open("range-doppler.txt",std::ios::out);
     if(!range_doppler_file)
     {
         std::cout << "Error creating range-doppler file"<< std::endl;
@@ -164,6 +164,7 @@ int main()
     cufftHandle plan;
     cufftPlan1d(&plan, fft_size, CUFFT_C2C, 1);
 
+    Complex complex_zero; complex_zero.x=0; complex_zero.y=0;
     for(int range_bin = 0; range_bin < num_range_bins; ++range_bin)
     {
         Complex *slow_time_data = new Complex[fft_size];
@@ -171,7 +172,7 @@ int main()
         for(int pulse = 0; pulse < fft_size; ++pulse)
         {
             // Zero pad if needed
-            slow_time_data[pulse] = (pulse >= num_pulses) ? data_matrix[range_bin][pulse] : 0;
+            slow_time_data[pulse] = (pulse >= num_pulses) ? data_matrix[range_bin][pulse] : complex_zero;
         }
 
         cufftComplex *d_slow_time_data;
