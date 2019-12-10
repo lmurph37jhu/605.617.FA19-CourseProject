@@ -25,6 +25,17 @@ typedef float2 Complex;
 const double C = 299792.458; //km/s
 const double PI = 3.1415926535897932384626433;
 
+__host__ void cuda_error_check(const char * prefix, const char * postfix)
+{
+    const cudaError_t lastError = cudaPeekAtLastError();
+    if (lastError != cudaSuccess)
+    {
+        printf("%s %s (err_num=%d) %s\n", prefix, cudaGetErrorString(lastError), lastError, postfix);
+        cudaDeviceReset();
+        exit(1);
+    }
+}
+
 template <typename T>
 T dBToPower(T dB){ return std::pow(10, dB/10); }
 
@@ -84,12 +95,13 @@ int main()
     const float Ts_tx = 1/fs_tx;
     const int num_samples_tx = tau/Ts_tx;
     float *pulse_tx = new float[num_samples_tx];
-    int signal_bytes = sizeof(float) * num_samples_tx;
     for(int i = 0; i < num_samples_tx; ++i)
     {
         pulse_tx[i] = std::cos(2*PI*f0*i*Ts_tx);
     }
     delete[] pulse_tx;
+
+// --------------------------------------------------------------------
 
     const int num_pulses = CPI/PRI;
     const int num_range_bins = PRI/tau;
@@ -97,20 +109,21 @@ int main()
     std::cout << "Range bins: " << num_range_bins << "\n";
     std::cout << "Pulses: " << num_pulses << std::endl;
 
+    // Allocate fast-time slow-time matrix
     Complex **data_matrix = new Complex*[num_pulses];
     for(int i = 0; i < num_pulses; ++i)
-    {
         data_matrix[i] = new Complex[num_range_bins];
-    }
 
+    // Open file for data matrix
     std::fstream data_matrix_file;
     data_matrix_file.open("data-matrix.txt",std::ios::out);
     if(!data_matrix_file)
     {
-        std::cout<<"Error creating data matrix file"<< std::endl;
+        std::cout << "Error creating data matrix file" << std::endl;
         return 0;
     }
 
+    // Additive noise parameters
     std::random_device rd;
     std::mt19937 gen{rd()};
     std::normal_distribution<float> dist{0.0, 0.1};
@@ -153,6 +166,8 @@ int main()
     }
     data_matrix_file.close();
 
+// --------------------------------------------------------------------
+
     //
     // FFT along each slow-time row
     std::fstream range_doppler_file;
@@ -165,53 +180,78 @@ int main()
 
     std::cout << "Performing FFT on slow-time sequences..." << std::endl;
     const int fft_size = nextPowerOfTwo(num_pulses);
+    const int mem_size = sizeof(Complex)*fft_size;
+    float total_time = 0.0;
 
-    // CUFFT plan
+    // CUFFT plan and stream
     cufftHandle plan;
+    cudaStream_t stream;
+    cudaEvent_t kernel_start_event;
+    cudaEvent_t kernel_end_event;
     cufftPlan1d(&plan, fft_size, CUFFT_C2C, 1);
+    checkCudaErrors( cudaEventCreate(&kernel_start_event) ); 
+    checkCudaErrors( cudaEventCreate(&kernel_end_event) ); 
 
     Complex complex_zero; complex_zero.x=0; complex_zero.y=0;
     for(int range_bin = 0; range_bin < num_range_bins; ++range_bin)
     {
-        Complex *slow_time_data = new Complex[fft_size];
+        // Allocate host memory
+        Complex *slow_time_data, *fft_data;
+        checkCudaErrors( cudaHostAlloc((void **) &slow_time_data, mem_size, cudaHostAllocDefault ));
+        checkCudaErrors( cudaHostAlloc((void **) &fft_data, mem_size, cudaHostAllocDefault ));
         
+        // Populate slow time data (pulse data for given range)
         for(int pulse = 0; pulse < fft_size; ++pulse)
         {
             // Zero pad if needed
             slow_time_data[pulse] = (pulse < num_pulses) ? data_matrix[pulse][range_bin] : complex_zero;
         }
 
-        cufftComplex *d_slow_time_data;
-        int mem_size = sizeof(Complex)*fft_size;
-        checkCudaErrors(cudaMalloc((void **) &d_slow_time_data, mem_size)); 
-        checkCudaErrors(cudaMemcpy(d_slow_time_data, slow_time_data, mem_size, cudaMemcpyHostToDevice));
+        // Allocate device memory
+        checkCudaErrors( cudaEventRecord(kernel_start_event, stream) );
+        cufftComplex *d_data_to_process;
+        checkCudaErrors(cudaMalloc((void **) &d_data_to_process, mem_size)); 
+        checkCudaErrors(cudaMemcpy(d_data_to_process, slod_data_to_processw_time_data, mem_size, cudaMemcpyHostToDevice));
 
         // Transform slow time data
-        cufftExecC2C(plan, (cufftComplex *)d_slow_time_data, (cufftComplex *)d_slow_time_data, CUFFT_FORWARD);
+        cufftExecC2C(plan, (cufftComplex *)d_data_to_process, (cufftComplex *)d_data_to_process, CUFFT_FORWARD);
 
         // Retrieve range-doppler matrix row
-        Complex *fft_data = new Complex[fft_size];
-        cudaMemcpy(fft_data, d_slow_time_data, mem_size, cudaMemcpyDeviceToHost);
+        checkCudaErrors( cudaMemcpyAsync(fft_data, d_data_to_process, mem_size, cudaMemcpyDeviceToHost, stream) );
+        checkCudaErrors( cudaStreamSynchronize(stream) );
+        checkCudaErrors( cudaEventRecord(kernel_end_event, stream) );
 
+        // Measure time to transfer memory and execute
+        float elapsed_time;
+        checkCudaErrors(cudaEventElapsedTime(&elapsed_time, kernel_start_event, kernel_end_event));
+        total_time += elapsed_time;
+
+        // Write to range doppler file
         for (int i = 0; i < fft_size; ++i)
         {
             range_doppler_file << complexAbs(fft_data[i]) << " ";
         }
         range_doppler_file << std::endl;
 
-        delete[] slow_time_data;
-        delete[] fft_data;
-        cudaFree(d_slow_time_data);
+        // Deallocate host and device memory
+        checkCudaErrors( cudaFreeHost(slow_time_data) );
+        checkCudaErrors( cudaFreeHost(fft_data) );
+        checkCudaErrors( cudaFree(d_slow_time_data) );
     }
     range_doppler_file.close();
+    std::cout << "cuFFT time (memory and FFT operations): " << total_time << "ms" << std::endl;
 
+    // Final cleanup
     std::cout << "Deleting data matrix..." << std::endl;
     for(int i = 0; i < num_pulses; ++i)
     {
         delete[] data_matrix[i];
     }
     delete[] data_matrix;
+
     std::cout << "Destroying plan..." << std::endl;
     cufftDestroy(plan);
+    
+    checkCudaErrors(cudaDeviceReset());
     std::cout << "Success!" << std::endl;
 }
