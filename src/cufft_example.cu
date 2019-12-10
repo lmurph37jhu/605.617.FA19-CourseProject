@@ -44,6 +44,9 @@ int nextPowerOfTwo(int v){
     return v;
 }
 
+float complexAbs(Complex cplx){ return std::sqrt(cplx.x*cplx.x + cplx.y*cplx.y); }
+float complexPhase(Complex cplx){ return std::atan(cplx.y / cplx.y); }
+
 int main()
 {
     // 
@@ -140,8 +143,7 @@ int main()
             //
             // Populate fast-time slow-time matrix
             data_matrix[pulse][i] = signal_analytic;
-            float abs_value = std::sqrt(signal_analytic.x*signal_analytic.x + signal_analytic.y*signal_analytic.y);
-            data_matrix_file << abs_value << " ";
+            data_matrix_file << complexAbs(signal_analytic) << " ";
         }
         data_matrix_file << "\n";
     }
@@ -176,22 +178,20 @@ int main()
         }
 
         cufftComplex *d_slow_time_data;
-        int input_mem_size = sizeof(Complex)*fft_size;
-        checkCudaErrors(cudaMalloc((void **) &d_slow_time_data, input_mem_size)); 
-        checkCudaErrors(cudaMemcpy(d_slow_time_data, slow_time_data, input_mem_size, cudaMemcpyHostToDevice));
+        int mem_size = sizeof(Complex)*fft_size;
+        checkCudaErrors(cudaMalloc((void **) &d_slow_time_data, mem_size)); 
+        checkCudaErrors(cudaMemcpy(d_slow_time_data, slow_time_data, mem_size, cudaMemcpyHostToDevice));
 
         // Transform slow time data
         cufftExecC2C(plan, (cufftComplex *)d_slow_time_data, (cufftComplex *)d_slow_time_data, CUFFT_FORWARD);
 
         // Retrieve range-doppler matrix row
-        int output_mem_size = sizeof(cufftComplex)*fft_size;
-        cufftComplex *fft_data = new cufftComplex[fft_size];
-        cudaMemcpy(fft_data, d_slow_time_data, output_mem_size, cudaMemcpyDeviceToHost);
+        Complex *fft_data = new Complex[fft_size];
+        cudaMemcpy(fft_data, d_slow_time_data, mem_size, cudaMemcpyDeviceToHost);
 
         for (int i = 0; i < fft_size; ++i)
         {
-            float abs_value = std::sqrt(fft_data[i][0]*fft_data[i][0] + fft_data[i][1]*fft_data[i][1]);
-            range_doppler_file << abs_value << " ";
+            range_doppler_file << complexPhase(fft_data[i]) << " ";
         }
         range_doppler_file << std::endl;
         delete[] slow_time_data, fft_data;
