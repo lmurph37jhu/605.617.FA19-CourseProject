@@ -181,16 +181,21 @@ int main()
     std::cout << "Performing FFT on slow-time sequences..." << std::endl;
     const int fft_size = nextPowerOfTwo(num_pulses);
     const int mem_size = sizeof(Complex)*fft_size;
-    float total_time = 0.0;
+    float total_memory_time = 0.0;
+    float total_kernel_time = 0.0;
 
     // CUFFT plan and stream
     cufftHandle plan;
     cudaStream_t stream;
+    cudaEvent_t to_device_event;
     cudaEvent_t kernel_start_event;
-    cudaEvent_t kernel_end_event;
+    cudaEvent_t to_host_event;
+    cudaEvent_t end_event;
     cufftPlan1d(&plan, fft_size, CUFFT_C2C, 1);
+    checkCudaErrors( cudaEventCreate(&to_device_event) ); 
     checkCudaErrors( cudaEventCreate(&kernel_start_event) ); 
-    checkCudaErrors( cudaEventCreate(&kernel_end_event) ); 
+    checkCudaErrors( cudaEventCreate(&to_host_event) ); 
+    checkCudaErrors( cudaEventCreate(&end_event) ); 
 
     Complex complex_zero; complex_zero.x=0; complex_zero.y=0;
     for(int range_bin = 0; range_bin < num_range_bins; ++range_bin)
@@ -208,23 +213,32 @@ int main()
         }
 
         // Allocate device memory
-        checkCudaErrors( cudaEventRecord(kernel_start_event, stream) );
+        checkCudaErrors( cudaEventRecord(to_device_event, stream) );
         cufftComplex *d_data_to_process;
         checkCudaErrors(cudaMalloc((void **) &d_data_to_process, mem_size)); 
         checkCudaErrors(cudaMemcpy(d_data_to_process, slow_time_data, mem_size, cudaMemcpyHostToDevice));
 
         // Transform slow time data
+        checkCudaErrors( cudaEventRecord(kernel_start_event, stream) );
         cufftExecC2C(plan, (cufftComplex *)d_data_to_process, (cufftComplex *)d_data_to_process, CUFFT_FORWARD);
 
         // Retrieve range-doppler matrix row
+        checkCudaErrors( cudaEventRecord(to_host_event, stream) );
         checkCudaErrors( cudaMemcpyAsync(fft_data, d_data_to_process, mem_size, cudaMemcpyDeviceToHost, stream) );
-        checkCudaErrors( cudaEventRecord(kernel_end_event, stream) );
+
+        // Wait for stream to synchronize
+        checkCudaErrors( cudaEventRecord(end_event, stream) );
         checkCudaErrors( cudaStreamSynchronize(stream) );
 
         // Measure time to transfer memory and execute
-        float elapsed_time;
-        checkCudaErrors(cudaEventElapsedTime(&elapsed_time, kernel_start_event, kernel_end_event));
-        total_time += elapsed_time;
+        float to_device_time;
+        float kernel_time;
+        float to_host_time;
+        checkCudaErrors(cudaEventElapsedTime(&to_device_time, to_device_event, kernel_start_event));
+        checkCudaErrors(cudaEventElapsedTime(&kernel_time, kernel_start_event, to_host_event));
+        checkCudaErrors(cudaEventElapsedTime(&to_host_time, to_host_event, end_event));
+        total_memory_time += (to_device_time + to_host_time);
+        total_kernel_time += kernel_time;
 
         // Write to range doppler file
         for (int i = 0; i < fft_size; ++i)
@@ -239,9 +253,15 @@ int main()
         checkCudaErrors( cudaFree(d_data_to_process) );
     }
     range_doppler_file.close();
-    std::cout << "cuFFT time (memory and FFT operations): " << total_time << "ms" << std::endl;
+    std::cout << "cuFFT time (FFT operations)   : " << total_kernel_time << "ms" << std::endl;
+    std::cout << "cuFFT time (memory operations): " << total_memory_time << "ms" << std::endl;
 
     // Final cleanup
+    checkCudaErrors( cudaEventDestroy(to_device_event) );
+    checkCudaErrors( cudaEventDestroy(kernel_start_event) );
+    checkCudaErrors( cudaEventDestroy(to_host_event) );
+    checkCudaErrors( cudaEventDestroy(end_event) );
+
     std::cout << "Deleting data matrix..." << std::endl;
     for(int i = 0; i < num_pulses; ++i)
     {
