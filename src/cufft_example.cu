@@ -218,8 +218,8 @@ int main()
 
         // Retrieve range-doppler matrix row
         checkCudaErrors( cudaMemcpyAsync(fft_data, d_data_to_process, mem_size, cudaMemcpyDeviceToHost, stream) );
-        checkCudaErrors( cudaStreamSynchronize(stream) );
         checkCudaErrors( cudaEventRecord(kernel_end_event, stream) );
+        checkCudaErrors( cudaStreamSynchronize(stream) );
 
         // Measure time to transfer memory and execute
         float elapsed_time;
