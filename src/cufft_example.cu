@@ -202,6 +202,7 @@ int main()
     checkCudaErrors( cudaHostAlloc((void **) &fft_data, mem_size, cudaHostAllocDefault) );
     checkCudaErrors( cudaMalloc((void **) &d_data_to_process, mem_size) ); 
     checkCudaErrors( cudaEventRecord(allocate_end_event, stream) );
+    checkCudaErrors( cudaStreamSynchronize(stream) );
     checkCudaErrors( cudaEventElapsedTime(&total_alloc_time, allocate_start_event, allocate_end_event) );
 
     Complex complex_zero; complex_zero.x=0; complex_zero.y=0;
@@ -254,6 +255,7 @@ int main()
     checkCudaErrors( cudaFreeHost(fft_data) );
     checkCudaErrors( cudaFree(d_data_to_process) );
     checkCudaErrors( cudaEventRecord(deallocate_end_event, stream) );
+    checkCudaErrors( cudaStreamSynchronize(stream) );
     float dealloc_time;
     checkCudaErrors(cudaEventElapsedTime(&dealloc_time, deallocate_start_event, deallocate_end_event));
     total_alloc_time += dealloc_time;
