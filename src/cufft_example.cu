@@ -97,7 +97,6 @@ int main()
         const float Ls = dBToPower( Lt + La_per_km*2*R + Lr + Lsp ); // Two-way system loss (dB)
         float A_prime = (Pt * dBToPower(RCS) * Ae) / 
                         (std::pow(4*PI, 3) * std::pow(R, 4) * Ls);
-        float gaussian_noise = 
 
         for(int i = 0; i < num_range_bins; ++i)
         {
