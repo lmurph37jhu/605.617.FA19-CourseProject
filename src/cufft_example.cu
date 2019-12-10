@@ -236,7 +236,7 @@ int main()
         // Deallocate host and device memory
         checkCudaErrors( cudaFreeHost(slow_time_data) );
         checkCudaErrors( cudaFreeHost(fft_data) );
-        checkCudaErrors( cudaFree(d_slow_time_data) );
+        checkCudaErrors( cudaFree(d_data_to_process) );
     }
     range_doppler_file.close();
     std::cout << "cuFFT time (memory and FFT operations): " << total_time << "ms" << std::endl;
