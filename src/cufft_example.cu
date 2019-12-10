@@ -190,7 +190,7 @@ int main()
 
         for (int i = 0; i < fft_size; ++i)
         {
-            float abs_value = std::sqrt(fft_data[i].x*fft_data[i].x + fft_data[i].y*fft_data[i].y);
+            float abs_value = std::sqrt(fft_data[i][0]*fft_data[i][0] + fft_data[i][1]*fft_data[i][1]);
             range_doppler_file << abs_value << " ";
         }
         range_doppler_file << std::endl;
